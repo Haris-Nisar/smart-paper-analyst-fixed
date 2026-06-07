@@ -1,0 +1,36 @@
+# Smart Academic Paper Analyst — Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core Web Framework ─────────────────────────────
+streamlit>=1.32.0
+
+# ── PDF Processing ─────────────────────────────────
+PyMuPDF>=1.23.0
+
+# ── LLM Orchestration (New modular LangChain) ──
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-text-splitters>=0.0.1
+
+# ── Embeddings ─────────────────────────────────────
+sentence-transformers>=2.6.0
+
+# ── Vector Database ────────────────────────────────
+faiss-cpu>=1.7.4
+
+# ── Numerical Computing ────────────────────────────
+numpy>=1.24.0
+
+# ── HTTP Requests (LLM API calls) ──────────────────
+requests>=2.31.0
+
+# ── Environment Variables ──────────────────────────
+python-dotenv>=1.0.0
+
+# ── Torch (required by sentence-transformers) ──────
+# Note: installs CPU-only version for broad compatibility
+torch>=2.0.0
+transformers>=4.36.0
+
+# ── Logging & Monitoring ──────────────────────────
+pydantic>=2.0.0

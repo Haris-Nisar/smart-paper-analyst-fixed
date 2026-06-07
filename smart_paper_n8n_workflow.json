@@ -1,0 +1,248 @@
+{
+  "name": "Smart Paper Analyst - AI Agent Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smart-paper",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "📥 Webhook Entry",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "smart-paper-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── Input Validator & Normalizer ───\nconst body = $input.first().json.body || $input.first().json;\n\nconst action = (body.action || '').toLowerCase().trim();\nconst question = (body.question || body.query || '').trim();\nconst paper_url = (body.paper_url || '').trim();\nconst streamlit_url = (body.streamlit_url || 'http://localhost:8501').trim();\n\n// Validate required fields\nif (!action) {\n  return [{\n    json: {\n      error: true,\n      message: \"❌ 'action' field required. Options: chat | summarize | compare | gap | search\"\n    }\n  }];\n}\n\nconst valid_actions = ['chat', 'summarize', 'compare', 'gap', 'search', 'status'];\nif (!valid_actions.includes(action)) {\n  return [{\n    json: {\n      error: true,\n      message: `❌ Invalid action '${action}'. Valid: ${valid_actions.join(' | ')}`\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    error: false,\n    action: action,\n    question: question,\n    paper_url: paper_url,\n    streamlit_url: streamlit_url,\n    timestamp: new Date().toISOString(),\n    raw_body: body\n  }\n}];"
+      },
+      "id": "validator-node",
+      "name": "🔍 Validate & Parse Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "error-check",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "error-check-node",
+      "name": "❓ Has Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.message }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-response-node",
+      "name": "❌ Return Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 180]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "systemMessage": "You are the AI brain of Smart Paper Analyst — an academic research tool.\n\nYou receive a user request with these fields:\n- action: what the user wants (chat | summarize | compare | gap | search | status)\n- question: the user's question or query\n- paper_url: URL of paper if provided\n- streamlit_url: base URL of the running Streamlit app\n\nYour job is to:\n1. Understand the user's intent\n2. Build the correct API call parameters to send to the Streamlit app's backend\n3. Return a structured JSON response with:\n   - endpoint: which Streamlit page/action to call\n   - method: GET or POST\n   - payload: the request body\n   - human_response: a friendly explanation of what you're doing\n   - confidence: how confident you are (high/medium/low)\n\nACTION MAPPINGS:\n- chat → endpoint: /api/chat | needs: question\n- summarize → endpoint: /api/summarize | needs: paper_url or uploaded paper\n- compare → endpoint: /api/compare | needs: multiple papers\n- gap → endpoint: /api/gap | needs: paper content\n- search → endpoint: /api/search | needs: question/query\n- status → endpoint: /api/status | check app health\n\nALWAYS respond with valid JSON only. No markdown. No explanation outside JSON.\n\nJSON format:\n{\n  \"endpoint\": \"/api/chat\",\n  \"method\": \"POST\",\n  \"payload\": { \"question\": \"...\", \"action\": \"chat\" },\n  \"human_response\": \"I will search for answers about your question in the uploaded papers.\",\n  \"confidence\": \"high\",\n  \"action_taken\": \"chat\"\n}"
+        }
+      },
+      "id": "ai-agent-node",
+      "name": "🤖 AI Agent Router",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [900, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI Agent response and build final request\nconst aiResponse = $input.first().json;\nconst originalInput = $('🔍 Validate & Parse Input').first().json;\n\nlet parsed;\ntry {\n  // AI returns JSON string in message content\n  const content = aiResponse.content || aiResponse.text || aiResponse.message || JSON.stringify(aiResponse);\n  const cleanContent = content.replace(/```json|```/g, '').trim();\n  parsed = JSON.parse(cleanContent);\n} catch(e) {\n  parsed = {\n    endpoint: '/api/chat',\n    method: 'POST',\n    payload: { question: originalInput.question, action: originalInput.action },\n    human_response: 'Processing your request...',\n    confidence: 'low',\n    action_taken: originalInput.action\n  };\n}\n\nconst streamlit_url = originalInput.streamlit_url || 'http://localhost:8501';\n\nreturn [{\n  json: {\n    full_url: streamlit_url + parsed.endpoint,\n    method: parsed.method || 'POST',\n    payload: {\n      ...parsed.payload,\n      question: originalInput.question,\n      action: originalInput.action,\n      timestamp: originalInput.timestamp\n    },\n    human_response: parsed.human_response,\n    confidence: parsed.confidence,\n    action_taken: parsed.action_taken,\n    streamlit_url: streamlit_url\n  }\n}];"
+      },
+      "id": "build-request-node",
+      "name": "🔧 Build API Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 380]
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.full_url }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "http-call-node",
+      "name": "📡 Call Streamlit App",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 380],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format final response\nconst httpResult = $input.first().json;\nconst buildData = $('🔧 Build API Request').first().json;\n\nlet app_response = '';\nlet success = true;\n\n// Check if HTTP call succeeded\nif (httpResult.error || httpResult.statusCode >= 400) {\n  // Streamlit ka direct API nahi hai — fallback response\n  success = false;\n  app_response = `⚠️ Streamlit app se direct response nahi mila. \n  \nAction: ${buildData.action_taken}\nEndpoint tried: ${buildData.full_url}\n\n💡 Yeh normal hai agar Streamlit app mein REST API endpoints configure nahi kiye.\nNeeche bataya gaya hai kya karna hai.`;\n} else {\n  app_response = httpResult.result || httpResult.answer || httpResult.response || JSON.stringify(httpResult);\n}\n\nreturn [{\n  json: {\n    success: success,\n    action: buildData.action_taken,\n    ai_understanding: buildData.human_response,\n    confidence: buildData.confidence,\n    app_response: app_response,\n    streamlit_url: buildData.streamlit_url,\n    timestamp: new Date().toISOString(),\n    note: success ? '' : 'REST API endpoints app.py mein add karne honge'\n  }\n}];"
+      },
+      "id": "format-response-node",
+      "name": "📝 Format Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 380]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "success-response-node",
+      "name": "✅ Return Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 380]
+    }
+  ],
+  "connections": {
+    "📥 Webhook Entry": {
+      "main": [
+        [
+          {
+            "node": "🔍 Validate & Parse Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Validate & Parse Input": {
+      "main": [
+        [
+          {
+            "node": "❓ Has Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Has Error?": {
+      "main": [
+        [
+          {
+            "node": "❌ Return Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🤖 AI Agent Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 AI Agent Router": {
+      "main": [
+        [
+          {
+            "node": "🔧 Build API Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Build API Request": {
+      "main": [
+        [
+          {
+            "node": "📡 Call Streamlit App",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📡 Call Streamlit App": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Final Response": {
+      "main": [
+        [
+          {
+            "node": "✅ Return Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": ["smart-paper-analyst", "ai-agent", "academic"],
+  "triggerCount": 0,
+  "updatedAt": "2026-06-06T00:00:00.000Z",
+  "versionId": "1"
+}
