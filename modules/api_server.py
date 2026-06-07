@@ -265,7 +265,7 @@ def clear():
 
 # ─── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    port = int(os.getenv("API_PORT", 5001))
+    port = int(os.getenv("PORT", 5001))
     logger.info(f"🚀 Smart Paper API running on http://localhost:{port}")
     logger.info("📋 Endpoints: /api/status | /api/upload | /api/chat | /api/summarize | /api/compare | /api/gap | /api/search")
     app.run(host="0.0.0.0", port=port, debug=False)
